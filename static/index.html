@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Bearing Fault Monitor</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg: #060709; --panel: #12161d; --panel-2: #1a202b; --panel-3: #212836;
+    --line: #2b3341; --line-bright: #3a4457; --text: #f5f7fa; --muted: #96a1b3;
+    --good: #00ffa3; --good-dim: rgba(0,255,163,0.14);
+    --fault: #ff4757; --fault-dim: rgba(255,71,87,0.14);
+    --accent: #00c2ff; --accent-dim: rgba(0,194,255,0.14);
+  }
+  *{ box-sizing: border-box; }
+  body{
+    margin:0; background:var(--bg); color:var(--text); font-family:'IBM Plex Sans', sans-serif; min-height:100vh;
+    background-image: radial-gradient(circle at 15% 0%, rgba(0,194,255,0.05), transparent 40%), radial-gradient(circle at 90% 20%, rgba(0,255,163,0.04), transparent 40%);
+  }
+  .wrap{ max-width:1200px; margin:0 auto; padding:30px 22px 70px; }
+  header{ display:flex; align-items:center; justify-content:space-between; padding-bottom:22px; border-bottom:1px solid var(--line); margin-bottom:26px; flex-wrap:wrap; gap:16px; }
+  .brand{ display:flex; align-items:center; gap:13px; }
+  .brand-mark{ width:38px; height:38px; border-radius:8px; background:linear-gradient(155deg, var(--good), #00b377); display:flex; align-items:center; justify-content:center; font-family:'Space Grotesk'; font-weight:700; color:#00110a; font-size:16px; box-shadow:0 0 22px rgba(0,255,163,0.35); }
+  h1{ font-family:'Space Grotesk'; font-weight:700; font-size:21px; margin:0; letter-spacing:0.2px; }
+  .sub{ font-size:12px; color:var(--muted); font-family:'IBM Plex Mono'; margin-top:3px; }
+  .status-cluster{ display:flex; align-items:center; gap:20px; flex-wrap:wrap; }
+  .led-row{ display:flex; align-items:center; gap:8px; font-family:'IBM Plex Mono'; font-size:11.5px; color:var(--muted); }
+  .led{ width:9px; height:9px; border-radius:50%; background:#3a4457; }
+  .led.on{ background:var(--good); box-shadow:0 0 10px var(--good); }
+  .led.off-fault{ background:var(--fault); box-shadow:0 0 10px var(--fault); }
+  .select-wrap{ position:relative; }
+  select#modelSelect{
+    appearance:none; -webkit-appearance:none;
+    background:var(--panel-3) url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6"><path d="M0 0L5 6L10 0Z" fill="%2396a1b3"/></svg>') no-repeat right 12px center;
+    color:var(--text); border:1px solid var(--line-bright); border-radius:7px; padding:9px 34px 9px 14px; font-family:'IBM Plex Mono'; font-size:12.5px; cursor:pointer; font-weight:500;
+  }
+  select#modelSelect:hover{ border-color:var(--accent); }
+  select#modelSelect option{ background:#171c25; color:var(--text); }
+  .panel{ background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px 22px; margin-bottom:20px; }
+  .panel-title{ font-family:'IBM Plex Mono'; font-size:11px; letter-spacing:1.6px; color:var(--muted); text-transform:uppercase; margin-bottom:14px; display:flex; justify-content:space-between; align-items:center; font-weight:600; }
+  #scopeCanvasWrap{ position:relative; height:230px; }
+  .scope-grid-note{ color:var(--accent); font-family:'IBM Plex Mono'; font-size:10.5px; }
+  .empty-state{ height:230px; display:flex; flex-direction:column; align-items:center; justify-content:center; color:var(--muted); font-family:'IBM Plex Mono'; font-size:12.5px; gap:8px; text-align:center; }
+  .empty-state .big{ font-size:28px; opacity:0.5; }
+  .row2{ display:grid; grid-template-columns: 320px 1fr; gap:20px; }
+  @media (max-width:860px){ .row2{ grid-template-columns:1fr; } }
+  .predict-block{ text-align:left; }
+  .predict-label{ font-family:'Space Grotesk'; font-weight:700; font-size:28px; margin:8px 0 5px; color:var(--good); }
+  .predict-label.dash{ color:var(--muted); font-size:22px; font-weight:500; }
+  .predict-conf{ font-family:'IBM Plex Mono'; font-size:13px; color:var(--muted); }
+  .predict-src{ font-family:'IBM Plex Mono'; font-size:10.5px; color:var(--muted); margin-top:10px; opacity:0.8; }
+  .verdict{ margin-top:16px; display:inline-flex; align-items:center; gap:8px; padding:7px 14px; border-radius:20px; font-family:'IBM Plex Mono'; font-size:11.5px; font-weight:600; }
+  .verdict.correct{ background:var(--good-dim); color:var(--good); border:1px solid rgba(0,255,163,0.3); }
+  .verdict.wrong{ background:var(--fault-dim); color:var(--fault); border:1px solid rgba(255,71,87,0.3); }
+  .verdict.neutral{ background:var(--accent-dim); color:var(--accent); border:1px solid rgba(0,194,255,0.3); }
+  .bars{ display:flex; flex-direction:column; gap:9px; }
+  .bar-row{ display:grid; grid-template-columns: 82px 1fr 48px; align-items:center; gap:11px; }
+  .bar-name{ font-family:'IBM Plex Mono'; font-size:11px; color:var(--muted); font-weight:500; }
+  .bar-track{ height:9px; background:var(--panel-2); border-radius:5px; overflow:hidden; border:1px solid var(--line); }
+  .bar-fill{ height:100%; background:var(--accent); width:0%; transition:width 0.3s ease; }
+  .bar-fill.top{ background:var(--good); box-shadow:0 0 8px rgba(0,255,163,0.5); }
+  .bar-pct{ font-family:'IBM Plex Mono'; font-size:11px; color:var(--muted); text-align:right; }
+  .controls{ display:flex; flex-wrap:wrap; gap:13px; align-items:center; }
+  button{ font-family:'IBM Plex Mono'; font-size:12.5px; border-radius:8px; padding:11px 18px; border:1px solid var(--line-bright); background:var(--panel-3); color:var(--text); cursor:pointer; transition: all 0.15s ease; font-weight:500; }
+  button:hover:not(:disabled){ border-color:var(--accent); color:var(--accent); }
+  button.primary{ background:var(--accent-dim); border-color:var(--accent); color:var(--accent); }
+  button.primary.active{ background:var(--good-dim); border-color:var(--good); color:var(--good); }
+  button:disabled{ opacity:0.35; cursor:not-allowed; }
+  input[type=file]{ display:none; }
+  .file-label{ font-family:'IBM Plex Mono'; font-size:12.5px; padding:11px 18px; border-radius:8px; border:1px dashed var(--line-bright); color:var(--muted); cursor:pointer; font-weight:500; }
+  .file-label:hover{ border-color:var(--good); color:var(--good); }
+  .tally{ margin-left:auto; font-family:'IBM Plex Mono'; font-size:12px; color:var(--muted); display:flex; gap:18px; align-items:center; flex-wrap:wrap; }
+  .tally b{ color:var(--good); }
+  .footer-note{ font-family:'IBM Plex Mono'; font-size:11px; color:var(--muted); margin-top:12px; line-height:1.6; }
+  .file-chip-row{ display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+  .file-chip{ font-family:'IBM Plex Mono'; font-size:10.5px; color:var(--muted); background:var(--panel-2); border:1px solid var(--line); border-radius:20px; padding:5px 12px; display:flex; align-items:center; gap:6px; }
+  .file-chip .dot{ width:6px; height:6px; border-radius:50%; background:var(--accent); }
+  .compare-row{ display:grid; grid-template-columns: repeat(3, 1fr); gap:14px; margin-top:14px; }
+  @media (max-width:760px){ .compare-row{ grid-template-columns:1fr; } }
+  .compare-card{ background:var(--panel-2); border:1px solid var(--line); border-radius:10px; padding:16px; text-align:center; }
+  .compare-card.best{ border-color:var(--good); box-shadow:0 0 16px rgba(0,255,163,0.15); }
+  .compare-name{ font-family:'IBM Plex Mono'; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:1px; }
+  .compare-acc{ font-family:'Space Grotesk'; font-weight:700; font-size:30px; margin:8px 0 4px; color:var(--text); }
+  .compare-card.best .compare-acc{ color:var(--good); }
+  .compare-sub{ font-family:'IBM Plex Mono'; font-size:10.5px; color:var(--muted); }
+  .about-text{ font-family:'IBM Plex Sans'; font-size:13px; line-height:1.7; color:var(--muted); margin-bottom:16px; }
+  .about-text b{ color:var(--text); }
+  .result-imgs{ display:grid; grid-template-columns:1fr; gap:16px; margin-top:16px; }
+  .result-imgs img{ width:100%; border-radius:8px; border:1px solid var(--line); }
+  .result-img-label{ font-family:'IBM Plex Mono'; font-size:10.5px; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:1px; }
+  table.summary-table{ width:100%; border-collapse:collapse; font-family:'IBM Plex Mono'; font-size:12px; margin-top:8px; }
+  table.summary-table th{ text-align:left; color:var(--muted); padding:8px 10px; border-bottom:1px solid var(--line-bright); font-weight:600; }
+  table.summary-table td{ padding:8px 10px; border-bottom:1px solid var(--line); color:var(--text); }
+  ::selection{ background: var(--good-dim); color:var(--good); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">
+      <div class="brand-mark">BF</div>
+      <div>
+        <h1>Bearing Fault Monitor</h1>
+        <div class="sub">1D-CNN &middot; CWRU vibration signal classifier</div>
+      </div>
+    </div>
+    <div class="status-cluster">
+      <div class="led-row"><span class="led" id="apiLed"></span> API</div>
+      <div class="led-row"><span class="led" id="liveLed"></span> LIVE FEED</div>
+      <div class="select-wrap">
+        <select id="modelSelect">
+          <option value="Nesterov_SGD">Nesterov SGD</option>
+          <option value="Momentum_SGD">Momentum SGD</option>
+          <option value="Standard_SGD">Standard SGD</option>
+        </select>
+      </div>
+    </div>
+  </header>
+
+  <div class="panel">
+    <div class="panel-title">
+      <span>UPLOAD VIBRATION SIGNAL(S)</span>
+      <span class="scope-grid-note" id="uploadInfo"></span>
+    </div>
+    <div class="controls">
+      <label class="file-label" id="fileLabel">Choose files (.mat / .npy / .csv) - multiple allowed</label>
+      <input type="file" id="fileInput" accept=".mat,.npy,.csv" multiple>
+      <button id="clearBtn" disabled>Clear</button>
+    </div>
+    <div class="file-chip-row" id="fileChips"></div>
+    <div class="footer-note">Files named with a known fault code (e.g. IR007, OR014, B021, Normal) are auto-validated against ground truth during simulation.</div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">
+      <span>VIBRATION WAVEFORM - DRIVE END SENSOR</span>
+      <span class="scope-grid-note" id="windowInfo"></span>
+    </div>
+    <div id="scopeHolder">
+      <div class="empty-state" id="scopeEmpty">
+        <div class="big">~</div>
+        <div>Upload a signal file to begin</div>
+      </div>
+      <div id="scopeCanvasWrap" style="display:none;"><canvas id="scopeCanvas"></canvas></div>
+    </div>
+  </div>
+
+  <div class="row2">
+    <div class="panel predict-block">
+      <div class="panel-title">PREDICTION</div>
+      <div class="predict-label dash" id="predLabel">-</div>
+      <div class="predict-conf" id="predConf">confidence: -</div>
+      <div class="predict-src" id="predSrc"></div>
+      <div id="verdictWrap"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">CLASS PROBABILITY</div>
+      <div class="bars" id="barsWrap"></div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">PLAYBACK</div>
+    <div class="controls">
+      <button class="primary" id="simBtn" disabled>Run live simulation</button>
+      <button id="stepBtn" disabled>Step once</button>
+      <div class="tally" id="tally">windows: 0 | validated: <b>0</b> | accuracy: <b>-</b></div>
+    </div>
+    <div class="footer-note" id="statusNote">Upload one or more signal files above to enable playback.</div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">OPTIMIZER COMPARISON</div>
+    <div class="controls">
+      <button id="compareBtn" disabled>Compare all 3 optimizers on this data</button>
+    </div>
+    <div class="compare-row" id="compareRow"></div>
+    <div class="footer-note" id="compareNote">Upload signal file(s) with known fault codes in the filename to compare validated accuracy across all three optimizers.</div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title">ABOUT &amp; TRAINING RESULTS</div>
+    <div class="about-text">
+      <b>Dataset:</b> CWRU Bearing Dataset, 12kHz Drive End sensor, 1hp load condition, 10 classes (Normal + 3 fault types &times; 3 severities). <br>
+      <b>Preprocessing:</b> signals windowed at 1024 samples (512 stride, 50% overlap), z-score normalized per window. Train/test split performed on the raw signal <i>before</i> windowing to prevent data leakage between overlapping windows. <br>
+      <b>Model:</b> lightweight 1D-CNN, 3 convolutional blocks + global average pooling + fully-connected classifier, ~15K trainable parameters. <br>
+      <b>Optimizer study:</b> identical architecture, weight initialization, and data across three SGD variants (Standard, Momentum, Nesterov) to isolate optimizer effects.
+    </div>
+    <table class="summary-table" id="summaryTable"></table>
+    <div class="result-imgs">
+      <div>
+        <div class="result-img-label">Early-epoch convergence (first 15 epochs)</div>
+        <img src="/static/early_epoch_convergence.png" alt="Early epoch convergence">
+      </div>
+      <div>
+        <div class="result-img-label">Full 50-epoch training curves</div>
+        <img src="/static/full_curves.png" alt="Full training curves">
+      </div>
+      <div>
+        <div class="result-img-label">Confusion matrices (held-out test set)</div>
+        <img src="/static/confusion_matrices.png" alt="Confusion matrices">
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const API = window.location.origin;
+const CLASS_NAMES = ['Normal','IR_007','IR_014','IR_021','Ball_007','Ball_014','Ball_021','OR_007','OR_014','OR_021'];
+
+let simInterval = null;
+let uploadedWindows = [];
+let currentResults = [];
+let sources = [];
+let trueLabels = [];
+let playIndex = 0;
+
+const scopeCtx = document.getElementById('scopeCanvas').getContext('2d');
+const scopeChart = new Chart(scopeCtx, {
+  type: 'line',
+  data: { labels: [], datasets: [{ data: [], borderColor: '#00ffa3', borderWidth: 1.6, pointRadius: 0, tension: 0.12, fill: true, backgroundColor: 'rgba(0,255,163,0.07)' }]},
+  options: { responsive:true, maintainAspectRatio:false, animation:false, plugins:{ legend:{display:false} },
+    scales:{ x:{ display:false }, y:{ grid:{ color:'#1f2530' }, ticks:{ color:'#96a1b3', font:{family:'IBM Plex Mono', size:9.5} } } } }
+});
+
+function setLed(id, on, fault){
+  const el = document.getElementById(id);
+  el.classList.remove('on','off-fault');
+  if(on) el.classList.add(fault ? 'off-fault' : 'on');
+}
+
+async function checkHealth(){
+  try{ const r = await fetch(API + '/health'); const d = await r.json(); setLed('apiLed', d.status === 'ok'); }
+  catch(e){ setLed('apiLed', true, true); }
+}
+
+function renderBars(probs){
+  const wrap = document.getElementById('barsWrap');
+  wrap.innerHTML = '';
+  const maxKey = Object.entries(probs).sort(function(a,b){return b[1]-a[1];})[0][0];
+  CLASS_NAMES.forEach(function(name){
+    const val = probs[name] || 0;
+    const row = document.createElement('div');
+    row.className = 'bar-row';
+    row.innerHTML = '<div class="bar-name">' + name + '</div>' +
+      '<div class="bar-track"><div class="bar-fill ' + (name===maxKey?'top':'') + '" style="width:' + (val*100).toFixed(1) + '%"></div></div>' +
+      '<div class="bar-pct">' + (val*100).toFixed(1) + '%</div>';
+    wrap.appendChild(row);
+  });
+}
+
+function renderWaveform(arr){
+  document.getElementById('scopeEmpty').style.display = 'none';
+  document.getElementById('scopeCanvasWrap').style.display = 'block';
+  scopeChart.data.labels = arr.map(function(_,i){return i;});
+  scopeChart.data.datasets[0].data = arr;
+  scopeChart.update();
+}
+
+function renderVerdict(trueLabel, predLabel){
+  const wrap = document.getElementById('verdictWrap');
+  if(trueLabel){
+    const correct = trueLabel === predLabel;
+    wrap.innerHTML = correct
+      ? '<div class="verdict correct">MATCHES GROUND TRUTH (' + trueLabel + ')</div>'
+      : '<div class="verdict wrong">MISCLASSIFIED - actual: ' + trueLabel + '</div>';
+  } else {
+    wrap.innerHTML = '<div class="verdict neutral">NO GROUND TRUTH IN FILENAME</div>';
+  }
+}
+
+function updateTally(){
+  const validated = currentResults.filter(function(r){return r.true_label;});
+  const correctCount = validated.filter(function(r){return r.true_label === r.predicted_label;}).length;
+  const acc = validated.length ? ((correctCount/validated.length)*100).toFixed(1)+'%' : '-';
+  document.getElementById('tally').innerHTML =
+    'windows: ' + uploadedWindows.length + ' | validated: <b>' + validated.length + '</b> | accuracy: <b>' + acc + '</b>';
+}
+
+function showWindowAt(idx){
+  if(!currentResults.length) return;
+  const r = currentResults[idx];
+  renderWaveform(uploadedWindows[idx]);
+  document.getElementById('windowInfo').innerText = 'window ' + (idx+1) + ' / ' + uploadedWindows.length;
+  document.getElementById('predLabel').classList.remove('dash');
+  document.getElementById('predLabel').innerText = r.predicted_label;
+  document.getElementById('predConf').innerText = 'confidence: ' + (r.confidence*100).toFixed(1) + '%';
+  document.getElementById('predSrc').innerText = 'source: ' + sources[idx];
+  renderBars(r.probabilities);
+  renderVerdict(r.true_label, r.predicted_label);
+}
+
+function renderFileChips(fileList){
+  const wrap = document.getElementById('fileChips');
+  wrap.innerHTML = '';
+  Array.from(fileList).forEach(function(f){
+    const chip = document.createElement('div');
+    chip.className = 'file-chip';
+    chip.innerHTML = '<span class="dot"></span>' + f.name;
+    wrap.appendChild(chip);
+  });
+}
+
+async function uploadFiles(fileList){
+  const model = document.getElementById('modelSelect').value;
+  const formData = new FormData();
+  Array.from(fileList).forEach(function(f){ formData.append('files', f); });
+
+  document.getElementById('uploadInfo').innerText = 'processing...';
+  document.getElementById('statusNote').innerText = 'Uploading and windowing signal(s)...';
+
+  try{
+    const r = await fetch(API + '/predict-files?model_name=' + model, { method:'POST', body: formData });
+    if(!r.ok){ const err = await r.json(); throw new Error(err.detail || 'Upload failed'); }
+    const d = await r.json();
+
+    uploadedWindows = d.results.map(function(x){return x.window;});
+    currentResults = d.results;
+    sources = d.results.map(function(x){return x.source_file;});
+    trueLabels = d.results.map(function(x){return x.true_label;});
+    playIndex = 0;
+
+    document.getElementById('uploadInfo').innerText = d.total_windows + ' windows from ' + Object.keys(d.per_file_summary).length + ' file(s)';
+    renderFileChips(fileList);
+    showWindowAt(0);
+    updateTally();
+
+    document.getElementById('simBtn').disabled = false;
+    document.getElementById('stepBtn').disabled = false;
+    document.getElementById('clearBtn').disabled = false;
+    document.getElementById('compareBtn').disabled = false;
+    document.getElementById('statusNote').innerText = 'Ready. Press "Run live simulation" to stream through all windows, or "Step once" to advance manually.';
+  }catch(err){
+    document.getElementById('statusNote').innerText = 'Error: ' + err.message;
+    document.getElementById('uploadInfo').innerText = '';
+  }
+}
+
+async function reRunModelOnUploadedWindows(){
+  if(!uploadedWindows.length) return;
+  const model = document.getElementById('modelSelect').value;
+  document.getElementById('statusNote').innerText = 'Re-running ' + model + ' on uploaded windows...';
+  try{
+    const r = await fetch(API + '/predict-windows', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ model_name: model, windows: uploadedWindows })
+    });
+    const d = await r.json();
+    currentResults = d.results.map(function(res, i){
+      return { predicted_label: res.predicted_label, confidence: res.confidence, probabilities: res.probabilities,
+               true_label: trueLabels[i], source_file: sources[i] };
+    });
+    showWindowAt(playIndex);
+    updateTally();
+    document.getElementById('statusNote').innerText = 'Switched to ' + model + '.';
+  }catch(e){
+    document.getElementById('statusNote').innerText = 'Error switching model.';
+  }
+}
+
+function stepOnce(){
+  if(!currentResults.length) return;
+  showWindowAt(playIndex);
+  playIndex = (playIndex + 1) % currentResults.length;
+}
+
+document.getElementById('modelSelect').addEventListener('change', reRunModelOnUploadedWindows);
+
+document.getElementById('simBtn').addEventListener('click', function(){
+  const btn = document.getElementById('simBtn');
+  if(simInterval){
+    clearInterval(simInterval); simInterval = null;
+    btn.textContent = 'Run live simulation'; btn.classList.remove('active'); setLed('liveLed', false);
+  } else {
+    stepOnce();
+    simInterval = setInterval(stepOnce, 1400);
+    btn.textContent = 'Stop simulation'; btn.classList.add('active'); setLed('liveLed', true);
+  }
+});
+
+document.getElementById('stepBtn').addEventListener('click', stepOnce);
+
+document.getElementById('compareBtn').addEventListener('click', async function(){
+  if(!uploadedWindows.length) return;
+  document.getElementById('compareNote').innerText = 'Running all 3 optimizers...';
+  try{
+    const r = await fetch(API + '/predict-all-models', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ windows: uploadedWindows })
+    });
+    const d = await r.json();
+    const validatedIdx = trueLabels.map(function(t,i){return t ? i : -1;}).filter(function(i){return i>=0;});
+
+    const accs = {};
+    Object.keys(d.models).forEach(function(name){
+      const preds = d.models[name].predicted_labels;
+      if(validatedIdx.length){
+        const correct = validatedIdx.filter(function(i){return preds[i] === trueLabels[i];}).length;
+        accs[name] = (correct/validatedIdx.length)*100;
+      } else {
+        accs[name] = null;
+      }
+    });
+
+    const order = ['Standard_SGD','Momentum_SGD','Nesterov_SGD'];
+    const best = order.reduce(function(a,b){ return (accs[b]||0) > (accs[a]||0) ? b : a; });
+
+    const wrap = document.getElementById('compareRow');
+    wrap.innerHTML = '';
+    order.forEach(function(name){
+      const card = document.createElement('div');
+      card.className = 'compare-card' + (name===best ? ' best' : '');
+      const accVal = accs[name];
+      card.innerHTML = '<div class="compare-name">' + name.replace('_',' ') + '</div>' +
+        '<div class="compare-acc">' + (accVal!==null ? accVal.toFixed(1)+'%' : 'n/a') + '</div>' +
+        '<div class="compare-sub">' + (validatedIdx.length ? validatedIdx.length + ' validated windows' : 'no ground truth available') + '</div>';
+      wrap.appendChild(card);
+    });
+    document.getElementById('compareNote').innerText = validatedIdx.length
+      ? 'Compared on ' + validatedIdx.length + ' windows with known ground truth from filename(s).'
+      : 'No filenames matched a known fault code, so accuracy cannot be validated. Predictions still ran successfully.';
+}catch(e){
+    document.getElementById('compareNote').innerText = 'Error running comparison: ' + e.message;
+}
+});
+
+document.getElementById('clearBtn').addEventListener('click', function(){
+  if(simInterval){ clearInterval(simInterval); simInterval=null; }
+  uploadedWindows = []; currentResults = []; sources = []; trueLabels = []; playIndex = 0;
+  document.getElementById('scopeEmpty').style.display = 'flex';
+  document.getElementById('scopeCanvasWrap').style.display = 'none';
+  document.getElementById('predLabel').classList.add('dash');
+  document.getElementById('predLabel').innerText = '-';
+  document.getElementById('predConf').innerText = 'confidence: -';
+  document.getElementById('predSrc').innerText = '';
+  document.getElementById('verdictWrap').innerHTML = '';
+  document.getElementById('barsWrap').innerHTML = '';
+  document.getElementById('fileChips').innerHTML = '';
+  document.getElementById('uploadInfo').innerText = '';
+  document.getElementById('windowInfo').innerText = '';
+  document.getElementById('compareRow').innerHTML = '';
+  document.getElementById('compareNote').innerText = 'Upload signal file(s) with known fault codes in the filename to compare validated accuracy across all three optimizers.';
+  document.getElementById('simBtn').disabled = true;
+  document.getElementById('stepBtn').disabled = true;
+  document.getElementById('clearBtn').disabled = true;
+  document.getElementById('compareBtn').disabled = true;
+  document.getElementById('simBtn').textContent = 'Run live simulation';
+  document.getElementById('simBtn').classList.remove('active');
+  setLed('liveLed', false);
+  document.getElementById('statusNote').innerText = 'Cleared. Upload signal file(s) to begin.';
+  document.getElementById('fileInput').value = '';
+  updateTally();
+});
+
+document.getElementById('fileLabel').addEventListener('click', function(){ document.getElementById('fileInput').click(); });
+document.getElementById('fileInput').addEventListener('change', function(e){
+  if(e.target.files.length) uploadFiles(e.target.files);
+});
+
+async function loadSummaryTable(){
+  try{
+    const r = await fetch(API + '/comparison-summary');
+    const d = await r.json();
+    if(!d.rows || !d.rows.length) return;
+    const cols = Object.keys(d.rows[0]);
+    let html = '<tr>' + cols.map(function(c){return '<th>'+c+'</th>';}).join('') + '</tr>';
+    d.rows.forEach(function(row){
+      html += '<tr>' + cols.map(function(c){return '<td>'+row[c]+'</td>';}).join('') + '</tr>';
+    });
+    document.getElementById('summaryTable').innerHTML = html;
+  }catch(e){}
+}
+
+checkHealth();
+setInterval(checkHealth, 8000);
+loadSummaryTable();
+</script>
+</body>
+</html>

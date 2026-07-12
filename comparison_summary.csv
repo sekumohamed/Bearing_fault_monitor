@@ -1,0 +1,4 @@
+Optimizer,Final Test Accuracy,Final Test Loss,Epochs to 95% Train Acc
+Standard_SGD,61.37%,2.2331,32
+Momentum_SGD,97.24%,0.0964,7
+Nesterov_SGD,98.25%,0.0568,7

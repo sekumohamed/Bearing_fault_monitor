@@ -2,7 +2,8 @@ venv/
 __pycache__/
 *.pyc
 data/
-X_train.npy
-y_train.npy
-X_test.npy
-y_test.npy
+*.npy
+training_history.json
+comparison_summary.csv
+synthetic_*.csv
+generate_synthetic_data.py

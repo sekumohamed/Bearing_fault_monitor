@@ -7,9 +7,13 @@ training_history.json
 comparison_summary.csv
 synthetic_*.csv
 generate_synthetic_data.py
-preprocess_data.py
 preprocess_multicondition.py
-sanity_check.py
 test_cross_load.py
 train_multicondition.py
 train.py
+sanity_check.py
+preprocess_data.py
+static/early_epoch_convergence.png
+static/full_curves.png
+static/confusion_matrices.png
+/signal_comparison.png

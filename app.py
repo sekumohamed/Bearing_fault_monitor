@@ -22,8 +22,8 @@ MODEL_FILES = {
     'Standard_SGD': 'model_Standard_SGD.pth',
     'Momentum_SGD': 'model_Momentum_SGD.pth',
     'Nesterov_SGD': 'model_Nesterov_SGD.pth',
+    'MultiCondition_Nesterov': 'model_MultiCondition_Nesterov.pth',
 }
-
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 app = FastAPI(title="Bearing Fault Detection API")
@@ -156,10 +156,10 @@ class WindowsRequest(BaseModel):
 FILENAME_LABEL_HINTS = {
     'normal': 'Normal',
     'ir007': 'IR_007', 'ir014': 'IR_014', 'ir021': 'IR_021',
+    'ball007': 'Ball_007', 'ball014': 'Ball_014', 'ball021': 'Ball_021',
     'b007': 'Ball_007', 'b014': 'Ball_014', 'b021': 'Ball_021',
     'or007': 'OR_007', 'or014': 'OR_014', 'or021': 'OR_021',
 }
-
 
 def infer_true_label_from_filename(filename: str):
     fname = filename.lower().replace('_', '').replace('-', '').replace('.', '')

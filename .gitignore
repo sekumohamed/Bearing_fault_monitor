@@ -13,7 +13,3 @@ train_multicondition.py
 train.py
 sanity_check.py
 preprocess_data.py
-static/early_epoch_convergence.png
-static/full_curves.png
-static/confusion_matrices.png
-/signal_comparison.png

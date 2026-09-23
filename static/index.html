@@ -172,6 +172,16 @@
     </div>
     <div class="footer-note" id="statusNote">Upload one or more signal files above to enable playback.</div>
   </div>
+    <div class="panel">
+    <div class="panel-title">
+      <span>LIVE SENSOR FEED</span>
+      <span class="scope-grid-note" id="liveWsStatus">connecting...</span>
+    </div>
+    <div class="controls">
+      <div class="tally" id="liveTally">frames: 0 | validated: <b>0</b> | accuracy: <b>-</b></div>
+    </div>
+    <div class="footer-note" id="liveStatusNote">Waiting for a live stream (sensor or synthetic generator) to connect on the backend.</div>
+  </div>
 
   <div class="panel">
     <div class="panel-title">OPTIMIZER COMPARISON</div>
@@ -475,10 +485,61 @@ async function loadSummaryTable(){
     document.getElementById('summaryTable').innerHTML = html;
   }catch(e){}
 }
+const WS_DASHBOARD_URL = (window.location.protocol === 'https:' ? 'wss://' : 'ws://') + window.location.host + '/ws/dashboard-live';
+let liveWs = null;
+let liveStats = { total: 0, validated: 0, correct: 0 };
+
+function updateLiveTally(trueLabel, predLabel){
+  liveStats.total += 1;
+  if(trueLabel){
+    liveStats.validated += 1;
+    if(trueLabel === predLabel) liveStats.correct += 1;
+  }
+  const acc = liveStats.validated ? ((liveStats.correct/liveStats.validated)*100).toFixed(1)+'%' : '-';
+  document.getElementById('liveTally').innerHTML =
+    'frames: ' + liveStats.total + ' | validated: <b>' + liveStats.validated + '</b> | accuracy: <b>' + acc + '</b>';
+}
+
+function connectLiveWS(){
+  liveWs = new WebSocket(WS_DASHBOARD_URL);
+
+  liveWs.onopen = function(){
+    document.getElementById('liveWsStatus').innerText = 'connected';
+    document.getElementById('liveStatusNote').innerText = 'Connected. Waiting for frames from the sensor stream...';
+    setLed('liveLed', true);
+  };
+
+  liveWs.onmessage = function(event){
+    const msg = JSON.parse(event.data);
+    if(msg.type !== 'frame') return;
+
+    // Reuses your existing render functions directly
+    renderWaveform(msg.waveform);
+    document.getElementById('windowInfo').innerText = 'live sensor frame';
+    document.getElementById('predLabel').classList.remove('dash');
+    document.getElementById('predLabel').innerText = msg.predicted_label;
+    document.getElementById('predConf').innerText = 'confidence: ' + (msg.confidence*100).toFixed(1) + '%';
+    document.getElementById('predSrc').innerText = 'source: ' + msg.source_file;
+    renderBars(msg.probabilities);
+    renderVerdict(msg.true_label, msg.predicted_label);
+    updateLiveTally(msg.true_label, msg.predicted_label);
+    document.getElementById('liveStatusNote').innerText = 'Streaming live.';
+  };
+
+  liveWs.onclose = function(){
+    document.getElementById('liveWsStatus').innerText = 'disconnected';
+    document.getElementById('liveStatusNote').innerText = 'Live connection lost. Reconnecting...';
+    setLed('liveLed', false);
+    setTimeout(connectLiveWS, 2000);
+  };
+
+  liveWs.onerror = function(){ setLed('liveLed', true, true); };
+}
 
 checkHealth();
 setInterval(checkHealth, 8000);
 loadSummaryTable();
+connectLiveWS();
 </script>
 </body>
 </html>

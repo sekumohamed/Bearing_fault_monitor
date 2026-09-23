@@ -4,7 +4,8 @@ import numpy as np
 import scipy.io
 import torch
 import torch.nn.functional as F
-from fastapi import FastAPI, UploadFile, File, HTTPException, Query
+import json
+from fastapi import FastAPI, UploadFile, File, HTTPException, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
@@ -290,7 +291,75 @@ def comparison_summary():
         raise HTTPException(status_code=404, detail="comparison_summary.csv not found")
     return {"rows": rows}
 
-# ---- Serve the frontend dashboard ----
+# =========================================================
+# LIVE SENSOR (WebSocket) — synthetic or real sensor streaming
+# =========================================================
+
+WS_WINDOW_SIZE = WINDOW_SIZE  # reuse your existing 1024
+sensor_buffer = []
+dashboard_clients: List[WebSocket] = []
+active_model_name = "Nesterov_SGD"
+
+@app.websocket("/ws/sensor")
+async def ws_sensor(websocket: WebSocket):
+    await websocket.accept()
+    global sensor_buffer, active_model_name
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            data = json.loads(raw)
+            samples = data["samples"]
+            true_label = data.get("true_label")
+            sensor_buffer.extend(samples)
+
+            while len(sensor_buffer) >= WS_WINDOW_SIZE:
+                window = np.array(sensor_buffer[:WS_WINDOW_SIZE], dtype=np.float32)
+                sensor_buffer = sensor_buffer[WS_WINDOW_SIZE:]
+
+                norm_window = normalize_window(window)
+                model = loaded_models[active_model_name]
+                preds, confidences, probs = run_prediction(model, norm_window.reshape(1, -1))
+
+                result = {
+                    "type": "frame",
+                    "predicted_label": CLASS_NAMES[int(preds[0])],
+                    "confidence": float(confidences[0]),
+                    "probabilities": {CLASS_NAMES[j]: float(probs[0][j]) for j in range(len(CLASS_NAMES))},
+                    "waveform": window.tolist(),
+                    "source_file": "live_sensor",
+                    "true_label": true_label
+                }
+                stale = []
+                for client in dashboard_clients:
+                    try:
+                        await client.send_json(result)
+                    except Exception:
+                        stale.append(client)
+                for client in stale:
+                    dashboard_clients.remove(client)
+    except WebSocketDisconnect:
+        pass
+
+
+@app.websocket("/ws/dashboard-live")
+async def ws_dashboard_live(websocket: WebSocket):
+    await websocket.accept()
+    dashboard_clients.append(websocket)
+    try:
+        while True:
+            msg = await websocket.receive_text()
+            try:
+                cmd = json.loads(msg)
+                if cmd.get("cmd") == "set_model":
+                    global active_model_name
+                    name = cmd.get("model_name")
+                    if name in loaded_models:
+                        active_model_name = name
+            except Exception:
+                pass
+    except WebSocketDisconnect:
+        dashboard_clients.remove(websocket)
+        # ---- Serve the frontend dashboard ----
 @app.get("/")
 def serve_dashboard():
     return FileResponse("static/index.html")

@@ -3,6 +3,7 @@ import csv
 import numpy as np
 import scipy.io
 import torch
+import asyncio
 import torch.nn.functional as F
 import json
 from fastapi import FastAPI, UploadFile, File, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -300,6 +301,38 @@ sensor_buffer = []
 dashboard_clients: List[WebSocket] = []
 active_model_name = "Nesterov_SGD"
 
+# ---- Real test-set data for the "Run live simulation" button ----
+_X_test = np.load('X_test.npy')
+_y_test_raw = np.load('y_test.npy', allow_pickle=True)
+_y_test = [
+    (v.decode() if isinstance(v, bytes) else v) if isinstance(v, (str, bytes))
+    else CLASS_NAMES[int(v)]
+    for v in _y_test_raw
+]
+FRAME_DELAY_SECONDS = 1.4
+
+
+def build_frame(window_idx: int):
+    window = _X_test[window_idx].astype(np.float32).flatten()
+    true_label = _y_test[window_idx]
+
+    norm_window = normalize_window(window)
+    model = loaded_models[active_model_name]
+    preds, confidences, probs = run_prediction(model, norm_window.reshape(1, -1))
+
+    return {
+        "type": "frame",
+        "predicted_label": CLASS_NAMES[int(preds[0])],
+        "confidence": float(confidences[0]),
+        "probabilities": {CLASS_NAMES[j]: float(probs[0][j]) for j in range(len(CLASS_NAMES))},
+        "waveform": window.tolist(),
+        "source_file": "live_sensor",
+        "true_label": true_label,
+        "window_index": window_idx,
+        "total_windows": len(_X_test),
+    }
+
+
 @app.websocket("/ws/sensor")
 async def ws_sensor(websocket: WebSocket):
     await websocket.accept()
@@ -345,20 +378,55 @@ async def ws_sensor(websocket: WebSocket):
 async def ws_dashboard_live(websocket: WebSocket):
     await websocket.accept()
     dashboard_clients.append(websocket)
+    global active_model_name
+
+    play_task: asyncio.Task = None
+    window_idx = 0
+
+    async def play_loop():
+        nonlocal window_idx
+        while True:
+            frame = build_frame(window_idx)
+            try:
+                await websocket.send_json(frame)
+            except Exception:
+                return
+            window_idx = (window_idx + 1) % len(_X_test)
+            await asyncio.sleep(FRAME_DELAY_SECONDS)
+
     try:
         while True:
             msg = await websocket.receive_text()
             try:
                 cmd = json.loads(msg)
-                if cmd.get("cmd") == "set_model":
-                    global active_model_name
+                action = cmd.get("cmd")
+
+                if action == "set_model":
                     name = cmd.get("model_name")
                     if name in loaded_models:
                         active_model_name = name
+
+                elif action == "play":
+                    if play_task is None or play_task.done():
+                        play_task = asyncio.create_task(play_loop())
+
+                elif action == "pause":
+                    if play_task is not None and not play_task.done():
+                        play_task.cancel()
+                        play_task = None
+
+                elif action == "step":
+                    frame = build_frame(window_idx)
+                    await websocket.send_json(frame)
+                    window_idx = (window_idx + 1) % len(_X_test)
+
             except Exception:
                 pass
     except WebSocketDisconnect:
+        if play_task is not None and not play_task.done():
+            play_task.cancel()
         dashboard_clients.remove(websocket)
+
         # ---- Serve the frontend dashboard ----
 @app.get("/")
 def serve_dashboard():

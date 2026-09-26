@@ -379,22 +379,40 @@ function stepOnce(){
   playIndex = (playIndex + 1) % currentResults.length;
 }
 
-document.getElementById('modelSelect').addEventListener('change', reRunModelOnUploadedWindows);
-
-document.getElementById('simBtn').addEventListener('click', function(){
-  const btn = document.getElementById('simBtn');
-  if(simInterval){
-    clearInterval(simInterval); simInterval = null;
-    btn.textContent = 'Run live simulation'; btn.classList.remove('active'); setLed('liveLed', false);
-  } else {
-    stepOnce();
-    simInterval = setInterval(stepOnce, 1400);
-    btn.textContent = 'Stop simulation'; btn.classList.add('active'); setLed('liveLed', true);
+document.getElementById('modelSelect').addEventListener('change', function(){
+  reRunModelOnUploadedWindows();
+  if(liveWs && liveWs.readyState === WebSocket.OPEN){
+    liveWs.send(JSON.stringify({ cmd: 'set_model', model_name: this.value }));
   }
 });
 
-document.getElementById('stepBtn').addEventListener('click', stepOnce);
+let isLivePlaying = false;
 
+document.getElementById('simBtn').addEventListener('click', function(){
+  const btn = document.getElementById('simBtn');
+  if(!liveWs || liveWs.readyState !== WebSocket.OPEN){
+    document.getElementById('statusNote').innerText = 'Live connection not ready yet — try again in a second.';
+    return;
+  }
+  if(isLivePlaying){
+    liveWs.send(JSON.stringify({ cmd: 'pause' }));
+    isLivePlaying = false;
+    btn.textContent = 'Run live simulation';
+    btn.classList.remove('active');
+    document.getElementById('statusNote').innerText = 'Paused.';
+  } else {
+    liveWs.send(JSON.stringify({ cmd: 'play' }));
+    isLivePlaying = true;
+    btn.textContent = 'Stop simulation';
+    btn.classList.add('active');
+    document.getElementById('statusNote').innerText = 'Streaming live test-set windows from the backend...';
+  }
+});
+
+document.getElementById('stepBtn').addEventListener('click', function(){
+  if(!liveWs || liveWs.readyState !== WebSocket.OPEN) return;
+  liveWs.send(JSON.stringify({ cmd: 'step' }));
+});
 document.getElementById('compareBtn').addEventListener('click', async function(){
   if(!uploadedWindows.length) return;
   document.getElementById('compareNote').innerText = 'Running all 3 optimizers...';
@@ -507,13 +525,14 @@ function connectLiveWS(){
     document.getElementById('liveWsStatus').innerText = 'connected';
     document.getElementById('liveStatusNote').innerText = 'Connected. Waiting for frames from the sensor stream...';
     setLed('liveLed', true);
+    document.getElementById('simBtn').disabled = false;
+    document.getElementById('stepBtn').disabled = false;
   };
 
   liveWs.onmessage = function(event){
     const msg = JSON.parse(event.data);
     if(msg.type !== 'frame') return;
 
-    // Reuses your existing render functions directly
     renderWaveform(msg.waveform);
     document.getElementById('windowInfo').innerText = 'live sensor frame';
     document.getElementById('predLabel').classList.remove('dash');
@@ -530,6 +549,9 @@ function connectLiveWS(){
     document.getElementById('liveWsStatus').innerText = 'disconnected';
     document.getElementById('liveStatusNote').innerText = 'Live connection lost. Reconnecting...';
     setLed('liveLed', false);
+    isLivePlaying = false;
+    document.getElementById('simBtn').textContent = 'Run live simulation';
+    document.getElementById('simBtn').classList.remove('active');
     setTimeout(connectLiveWS, 2000);
   };
 

@@ -3,8 +3,9 @@ __pycache__/
 *.pyc
 data/
 *.npy
+!X_test.npy
+!y_test.npy
 training_history.json
-comparison_summary.csv
 synthetic_*.csv
 generate_synthetic_data.py
 preprocess_multicondition.py

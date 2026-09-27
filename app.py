@@ -37,15 +37,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ---- Load all 3 trained models at startup ----
+# ---- Lazy-load models on demand (keeps memory low on free-tier hosts) ----
 loaded_models = {}
-for name, filepath in MODEL_FILES.items():
-    model = BearingFaultCNN(num_classes=10).to(device)
-    model.load_state_dict(torch.load(filepath, map_location=device))
-    model.eval()
-    loaded_models[name] = model
 
-print(f"Loaded models: {list(loaded_models.keys())}")
+def get_model(name):
+    if name not in MODEL_FILES:
+        raise HTTPException(status_code=400, detail=f"Unknown model: {name}")
+    if name not in loaded_models:
+        model = BearingFaultCNN(num_classes=10).to(device)
+        model.load_state_dict(torch.load(MODEL_FILES[name], map_location=device))
+        model.eval()
+        loaded_models[name] = model
+        print(f"Loaded model into memory: {name}")
+        if len(loaded_models) > 1:
+            oldest = next(iter(loaded_models))
+            if oldest != name:
+                del loaded_models[oldest]
+                print(f"Evicted model from memory: {oldest}")
+    return loaded_models[name]
 
 def normalize_window(window):
     mean = np.mean(window)

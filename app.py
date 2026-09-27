@@ -131,7 +131,7 @@ async def predict_file(model_name: str = Query(...), file: UploadFile = File(...
     windows = create_windows(signal, WINDOW_SIZE, STRIDE)
     windows_norm = np.array([normalize_window(w) for w in windows])
 
-    model = loaded_models[model_name]
+    model = get_model(model_name)
     preds, confidences, probs = run_prediction(model, windows_norm)
 
     # Majority vote across all windows
@@ -198,10 +198,10 @@ def parse_signal_from_upload(filename: str, contents: bytes):
 
 @app.post("/predict-files")
 async def predict_files(model_name: str = Query(...), files: List[UploadFile] = File(...)):
-    if model_name not in loaded_models:
+    if model_name not in MODEL_FILES:
         raise HTTPException(status_code=400, detail=f"Unknown model: {model_name}")
 
-    model = loaded_models[model_name]
+    model = get_model(model_name)
     all_windows = []
     all_sources = []
     all_true_labels = []
@@ -260,10 +260,10 @@ async def predict_files(model_name: str = Query(...), files: List[UploadFile] = 
 @app.post("/predict-windows")
 def predict_windows(req: WindowsRequest):
     """Re-run prediction on already-uploaded windows with a different model (no re-upload needed)."""
-    if req.model_name not in loaded_models:
+    if req.model_name not in MODEL_FILES:
         raise HTTPException(status_code=400, detail=f"Unknown model: {req.model_name}")
 
-    model = loaded_models[req.model_name]
+    model = get_model(req.model_name)
     windows_arr = np.array(req.windows)
     preds, confidences, probs = run_prediction(model, windows_arr)
 
@@ -280,7 +280,8 @@ def predict_windows(req: WindowsRequest):
 def predict_all_models(req: WindowsRequest):
     windows_arr = np.array(req.windows)
     output = {}
-    for name, model in loaded_models.items():
+    for name in MODEL_FILES:
+        model = get_model(name)
         preds, confidences, probs = run_prediction(model, windows_arr)
         output[name] = {
             "predicted_labels": [CLASS_NAMES[int(p)] for p in preds],
@@ -326,7 +327,7 @@ def build_frame(window_idx: int):
     true_label = _y_test[window_idx]
 
     norm_window = normalize_window(window)
-    model = loaded_models[active_model_name]
+    model = get_model(active_model_name)
     preds, confidences, probs = run_prediction(model, norm_window.reshape(1, -1))
 
     return {
@@ -359,7 +360,7 @@ async def ws_sensor(websocket: WebSocket):
                 sensor_buffer = sensor_buffer[WS_WINDOW_SIZE:]
 
                 norm_window = normalize_window(window)
-                model = loaded_models[active_model_name]
+                model = get_model(active_model_name)
                 preds, confidences, probs = run_prediction(model, norm_window.reshape(1, -1))
 
                 result = {
@@ -412,7 +413,7 @@ async def ws_dashboard_live(websocket: WebSocket):
 
                 if action == "set_model":
                     name = cmd.get("model_name")
-                    if name in loaded_models:
+                    if name in MODEL_FILES:
                         active_model_name = name
 
                 elif action == "play":

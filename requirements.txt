@@ -1,10 +1,10 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 torch
 numpy
 scipy
 scikit-learn
 fastapi
-uvicorn
+uvicorn[standard]
 python-multipart
 pydantic
-gradio
 websockets
